@@ -172,7 +172,7 @@ bool Serial_DataAvailableRX(uint8_t port)
 
   if (state->lineReady)
   {
-    if ((uint32_t)(produced - state->readCount) > cacheSize)
+    if ((uint32_t)(produced - state->readCount) >= cacheSize)
     {
       Serial_RX_Resync(port, produced, true);
       return false;
@@ -183,7 +183,7 @@ bool Serial_DataAvailableRX(uint8_t port)
 
   // Unsigned subtraction is intentional: the monotonic 32-bit byte counter
   // wraps naturally, while the retained window is always much smaller.
-  if ((uint32_t)(produced - state->readCount) > cacheSize)
+  if ((uint32_t)(produced - state->readCount) >= cacheSize)
   {
     Serial_RX_Resync(port, produced, true);
     return false;
@@ -191,7 +191,7 @@ bool Serial_DataAvailableRX(uint8_t port)
 
   while (state->scanCount != produced)
   {
-    if ((uint32_t)(produced - state->scanCount) > cacheSize)
+    if ((uint32_t)(produced - state->scanCount) >= cacheSize)
     {
       Serial_RX_Resync(port, produced, true);
       return false;
@@ -251,7 +251,7 @@ uint16_t Serial_Get(uint8_t port, char * buf, uint16_t bufSize)
     return 0;
   }
 
-  if ((uint32_t)(produced - state->readCount) > cacheSize)
+  if ((uint32_t)(produced - state->readCount) >= cacheSize)
   {
     Serial_RX_Resync(port, produced, true);
     return 0;
