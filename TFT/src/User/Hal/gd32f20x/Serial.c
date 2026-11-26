@@ -314,6 +314,9 @@ static void Serial_ClearData(uint8_t port)
 
 void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uint32_t baudrate)
 {
+  // Enable the DMA clock before inspecting or stopping a previously configured channel.
+  rcu_periph_clock_enable(Serial[port].dma_rcc);
+
   // Stop an existing channel before releasing or replacing its DMA buffer.
   Serial_DMA_DisableAndClearFlagsRX(port);
   #ifdef TX_DMA_WRITE
