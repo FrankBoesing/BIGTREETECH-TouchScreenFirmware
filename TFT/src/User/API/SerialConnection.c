@@ -204,13 +204,13 @@ bool Serial_DataAvailableRX(uint8_t port)
     {
       state->readCount = state->scanCount;
 
-      if (value == '\\n')
+      if (value == '\n')
         state->discardUntilLf = 0;
 
       continue;
     }
 
-    if (value == '\\n')
+    if (value == '\n')
     {
       state->lineEndCount = state->scanCount - 1U;
       state->lineReady = 1;
@@ -265,11 +265,13 @@ uint16_t Serial_Get(uint8_t port, char * buf, uint16_t bufSize)
     return 0;
   }
 
-  uint32_t start = state->readCount;
-  while (start < state->lineEndCount && dma->cache[start % cacheSize] == ' ')
-    start++;
+  uint32_t leadingSpaces = 0;
+  while (leadingSpaces < (lineLength - 1U) &&
+         dma->cache[(state->readCount + leadingSpaces) % cacheSize] == ' ')
+    leadingSpaces++;
 
-  uint32_t copyLength = state->lineEndCount - start + 1U;
+  uint32_t start = state->readCount + leadingSpaces;
+  uint32_t copyLength = lineLength - leadingSpaces;
   if ((copyLength + 1U) > bufSize)
   {
     // The caller's destination is smaller than this complete line. Consume
@@ -305,7 +307,7 @@ bool Serial_DataAvailableRX(uint8_t port)
 
   uint32_t cacheSize = dmaL1DataRX[port].cacheSize;
 
-  while (dmaL1DataRX[port].cache[flag] != '\\n' && flag != wIndex)
+  while (dmaL1DataRX[port].cache[flag] != '\n' && flag != wIndex)
     flag = (flag + 1) % cacheSize;
 
   dmaL1DataRX[port].flag = flag;
