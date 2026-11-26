@@ -6,6 +6,7 @@
 
 DMA_CIRCULAR_BUFFER dmaL1DataRX[_UART_CNT] = {0};  // DMA / interrupt RX buffer
 DMA_CIRCULAR_BUFFER dmaL1DataTX[_UART_CNT] = {0};  // DMA / interrupt TX buffer
+SERIAL_RX_STATE serialRxState[_UART_CNT] = {0};
 
 // config for USART DMA channels
 const SERIAL_CFG Serial[_UART_CNT] = {
@@ -31,7 +32,12 @@ const SERIAL_CFG Serial[_UART_CNT] = {
 // disable RX DMA and clear all interrupt flags for a serial port
 static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
 {
-  DMA_CHCTL(Serial[port].dma_stream, Serial[port].dma_channelRX) &= ~(1<<0);  // disable RX DMA
+  const SERIAL_CFG * cfg = &Serial[port];
+
+  // Disable DMA interrupt sources before stopping and clearing the channel.
+  dma_interrupt_disable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_HTF);
+  dma_interrupt_disable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_FTF);
+  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) &= ~(1<<0);  // disable RX DMA
 
   // table 12.5.2, 4 bits per channel, shift = channel * 4
 
@@ -102,6 +108,133 @@ static void Serial_DMA_DisableAndClearFlagsTX(uint8_t port)
 
 #endif
 
+// Enable the DMA half/full transfer interrupts used to extend the circular
+// DMA position into a monotonic byte counter.
+static void Serial_DMA_RX_EnableIRQ(uint8_t port)
+{
+  const SERIAL_CFG * cfg = &Serial[port];
+
+  dma_flag_clear(cfg->dma_stream, cfg->dma_channelRX, DMA_FLAG_HTF);
+  dma_flag_clear(cfg->dma_stream, cfg->dma_channelRX, DMA_FLAG_FTF);
+  dma_interrupt_enable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_HTF);
+  dma_interrupt_enable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_FTF);
+
+  // Each UART has its own DMA RX channel on GD32F20x.
+  // Priority 2 keeps the DMA bookkeeping below the time-critical UART IRQs.
+  switch (port)
+  {
+    case _USART1:
+      NVIC_SetPriority(DMA0_Channel4_IRQn, 2U);
+      NVIC_EnableIRQ(DMA0_Channel4_IRQn);
+      break;
+
+    case _USART2:
+      NVIC_SetPriority(DMA0_Channel5_IRQn, 2U);
+      NVIC_EnableIRQ(DMA0_Channel5_IRQn);
+      break;
+
+    case _USART3:
+      NVIC_SetPriority(DMA0_Channel2_IRQn, 2U);
+      NVIC_EnableIRQ(DMA0_Channel2_IRQn);
+      break;
+
+    case _UART4:
+      NVIC_SetPriority(DMA1_Channel2_IRQn, 2U);
+      NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+      break;
+
+    case _UART5:
+      NVIC_SetPriority(DMA1_Channel1_IRQn, 2U);
+      NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+      break;
+
+    case _USART6:
+      NVIC_SetPriority(DMA1_Channel5_IRQn, 2U);
+      NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+      break;
+  }
+}
+
+// Consume pending DMA boundary events. HTF and FTF each represent half a
+// buffer of received data. If both are pending together, servicing was delayed
+// by at least one half-buffer interval; the protocol layer will resynchronise.
+static void Serial_DMA_RX_ServiceEvents(uint8_t port)
+{
+  const SERIAL_CFG * cfg = &Serial[port];
+  SERIAL_RX_STATE * state = &serialRxState[port];
+
+  FlagStatus halfPending = dma_flag_get(cfg->dma_stream, cfg->dma_channelRX, DMA_FLAG_HTF);
+  FlagStatus fullPending = dma_flag_get(cfg->dma_stream, cfg->dma_channelRX, DMA_FLAG_FTF);
+
+  if ((halfPending == SET) && (fullPending == SET))
+    state->coalescedEvents++;
+
+  if (halfPending == SET)
+  {
+    dma_flag_clear(cfg->dma_stream, cfg->dma_channelRX, DMA_FLAG_HTF);
+    state->halfTransferEvents++;
+  }
+
+  if (fullPending == SET)
+  {
+    dma_flag_clear(cfg->dma_stream, cfg->dma_channelRX, DMA_FLAG_FTF);
+    state->halfTransferEvents++;
+  }
+}
+
+// Return a monotonic producer count. The critical section prevents the DMA
+// IRQ handler from updating the event count between the position and flag
+// snapshots; DMA itself continues running.
+uint32_t Serial_GetProducedCountRX(uint8_t port)
+{
+  if (port >= _UART_CNT)
+    return 0;
+
+  DMA_CIRCULAR_BUFFER * dma = &dmaL1DataRX[port];
+  if (dma->cache == NULL || dma->cacheSize < 2)
+    return 0;
+
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+
+  const uint32_t cacheSize = dma->cacheSize;
+  const uint32_t halfSize = cacheSize >> 1;
+  if (halfSize == 0)
+  {
+    __set_PRIMASK(primask);
+    return 0;
+  }
+
+  uint32_t position = 0;
+
+  for (;;)
+  {
+    uint32_t remaining = DMA_CHCNT(Serial[port].dma_stream, Serial[port].dma_channelRX);
+
+    // CNT may briefly be zero at the circular reload boundary. Normalise the
+    // resulting position so it is always in [0, cacheSize).
+    if (remaining <= cacheSize)
+      position = (remaining == 0) ? 0 : cacheSize - remaining;
+    else
+      position = 0;
+
+    FlagStatus halfPending = dma_flag_get(Serial[port].dma_stream, Serial[port].dma_channelRX, DMA_FLAG_HTF);
+    FlagStatus fullPending = dma_flag_get(Serial[port].dma_stream, Serial[port].dma_channelRX, DMA_FLAG_FTF);
+
+    if ((halfPending == RESET) && (fullPending == RESET))
+      break;
+
+    Serial_DMA_RX_ServiceEvents(port);
+  }
+
+  uint32_t completedHalfBuffers = serialRxState[port].halfTransferEvents;
+  uint32_t produced = completedHalfBuffers * halfSize + (position % halfSize);
+
+  dma->wIndex = position;
+  __set_PRIMASK(primask);
+  return produced;
+}
+
 static inline void Serial_DMA_Config(uint8_t port)
 {
   const SERIAL_CFG * cfg = &Serial[port];
@@ -154,11 +287,14 @@ static inline void Serial_DMA_Config(uint8_t port)
   #endif
 
   USART_CTL2(cfg->uart) |= (1<<6);                                // enable DMA receiver (DMAR)
+
+  Serial_DMA_RX_EnableIRQ(port);
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<0);       // RX enable DMA
 }
 
 static void Serial_ClearData(uint8_t port)
 {
+  memset(&serialRxState[port], 0, sizeof(serialRxState[port]));
   dmaL1DataRX[port].wIndex = dmaL1DataRX[port].rIndex = dmaL1DataRX[port].flag = dmaL1DataRX[port].timestamp = dmaL1DataRX[port].cacheSize = 0;
 
   if (dmaL1DataRX[port].cache != NULL)
@@ -178,6 +314,11 @@ static void Serial_ClearData(uint8_t port)
 
 void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uint32_t baudrate)
 {
+  // Stop an existing channel before releasing or replacing its DMA buffer.
+  Serial_DMA_DisableAndClearFlagsRX(port);
+  #ifdef TX_DMA_WRITE
+    Serial_DMA_DisableAndClearFlagsTX(port);
+  #endif
   Serial_ClearData(port);
 
   dmaL1DataRX[port].cacheSize = cacheSizeRX;
@@ -195,15 +336,15 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
 
 void Serial_DeConfig(uint8_t port)
 {
-  Serial_ClearData(port);
-
-  Serial_DMA_DisableAndClearFlagsRX(port);    // disable RX DMA and clear all interrupt flags
+  // Stop DMA before freeing its target/source memory.
+  Serial_DMA_DisableAndClearFlagsRX(port);
 
   #ifdef TX_DMA_WRITE
-    Serial_DMA_DisableAndClearFlagsTX(port);  // disable TX DMA and clear all interrupt flags
+    Serial_DMA_DisableAndClearFlagsTX(port);
   #endif
 
   UART_DeConfig(port);
+  Serial_ClearData(port);
 }
 
 #ifdef TX_DMA_WRITE  // TX DMA based serial writing
@@ -269,6 +410,20 @@ void Serial_Put(uint8_t port, const char * msg)
 }
 
 #endif
+
+// DMA RX IRQ entry points. The handler only accounts for completed DMA
+// half-buffers; byte parsing and line handling remain in the main context.
+static void Serial_DMA_RX_IRQHandler(uint8_t port)
+{
+  Serial_DMA_RX_ServiceEvents(port);
+}
+
+void DMA0_Channel2_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_USART3); }
+void DMA0_Channel4_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_USART1); }
+void DMA0_Channel5_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_USART2); }
+void DMA1_Channel1_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_UART5); }
+void DMA1_Channel2_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_UART4); }
+void DMA1_Channel5_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_USART6); }
 
 // ISR, serial interrupt handler
 void USART_IRQHandler(uint8_t port)
