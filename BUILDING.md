@@ -38,6 +38,10 @@ Build artifacts are placed below:
 .pio/build/BIGTREE_GD_TFT35_E3_V3_0/
 ```
 
+## First test after flashing
+
+The firmware default and the supplied `config.ini` use `tx_delay:4`. Existing settings stored in the TFT's persistent memory are not overwritten by a firmware update. For this branch, set the value explicitly on the display under **Settings → Feature → TX delay → 4 ms** before testing. This value follows BTT's 3–4 ms recommendation for `ADVANCED_OK` enabled and also provides margin when it is disabled.
+
 ## Other targets
 
 To build another supported board, specify its environment explicitly with `pio run -e <environment>`. The list of environments is defined in `platformio.ini`.
