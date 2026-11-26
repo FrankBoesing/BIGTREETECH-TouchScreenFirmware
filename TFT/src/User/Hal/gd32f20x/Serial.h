@@ -49,7 +49,9 @@ typedef struct
   uint32_t scanCount;                    // Absolute byte count scanned for line endings
   uint32_t lineEndCount;                 // Absolute position of the LF for the pending line
   uint32_t observedCoalescedEvents;
-  uint32_t overrunCount;
+  uint32_t overrunCount;                  // software RX ring-buffer overruns
+  volatile uint32_t uartOverrunCount;     // hardware USART overrun errors (ORE)
+  uint32_t observedUartOverrunCount;      // last hardware overrun count seen by the parser
   uint32_t droppedLineCount;
   uint8_t lineReady;
   uint8_t discardUntilLf;
