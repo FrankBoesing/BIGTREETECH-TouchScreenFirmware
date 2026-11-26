@@ -12,7 +12,7 @@
 #define _USART6   5  // USART5
 #define _UART_CNT 6
 
-void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool idle_interrupt);
+void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool interrupt_enable);
 void UART_DeConfig(uint8_t port);
 void UART_Write(uint8_t port, uint8_t d);
 void UART_Puts(uint8_t port, uint8_t * str);
