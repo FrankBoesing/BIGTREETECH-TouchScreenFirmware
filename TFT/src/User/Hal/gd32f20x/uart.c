@@ -124,11 +124,22 @@ static inline void UART_IRQ_Init(uint8_t port, uint16_t usart_it, bool interrupt
   }
 }
 
-void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool interrupt_enable)
+void UART_ConfigPrepare(uint8_t port, uint32_t baud, uint16_t usart_it, bool interrupt_enable)
 {
   UART_Protocol_Init(port, baud);
   UART_IRQ_Init(port, usart_it, interrupt_enable);
-  UART_GPIO_Init(port);  // after all initialization is completed, enable IO, otherwise a 0xFF will be sent automatically after power-on
+}
+
+void UART_EnableGPIO(uint8_t port)
+{
+  // Enable UART pins only after protocol and DMA setup are complete.
+  UART_GPIO_Init(port);
+}
+
+void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool interrupt_enable)
+{
+  UART_ConfigPrepare(port, baud, usart_it, interrupt_enable);
+  UART_EnableGPIO(port);
 }
 
 void UART_DeConfig(uint8_t port)
