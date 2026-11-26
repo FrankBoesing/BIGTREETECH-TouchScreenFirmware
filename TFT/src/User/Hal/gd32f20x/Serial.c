@@ -323,6 +323,9 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
     Serial_DMA_DisableAndClearFlagsTX(port);
   #endif
   Serial_ClearData(port);
+  // The UART may be opened in the middle of a line. Require one LF boundary
+  // before accepting the first protocol record after each (re)configuration.
+  serialRxState[port].discardUntilLf = 1;
 
   dmaL1DataRX[port].cacheSize = cacheSizeRX;
   dmaL1DataRX[port].cache = malloc(cacheSizeRX);
