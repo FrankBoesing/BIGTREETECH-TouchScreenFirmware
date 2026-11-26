@@ -5,11 +5,13 @@
 #include "variants.h"  // for rcu_periph_enum etc.
 #include "uart.h"      // for _UART_CNT etc.
 
-// UART TX implementation selection.
-// SERIAL_TX_DMA=1 uses DMA TX (default); SERIAL_TX_DMA=0 uses the
-// interrupt-driven byte transmitter while keeping RX DMA enabled.
+// UART DMA selections are independent so RX and TX can be isolated in tests.
 #ifndef SERIAL_TX_DMA
   #define SERIAL_TX_DMA 1
+#endif
+
+#ifndef SERIAL_RX_DMA
+  #define SERIAL_RX_DMA 1
 #endif
 
 #if SERIAL_TX_DMA
@@ -40,6 +42,7 @@ typedef struct
 
 typedef struct
 {
+  volatile uint32_t receivedBytes;       // Monotonic RX byte count when RX DMA is disabled
   volatile uint32_t halfTransferEvents;  // Number of completed DMA half-buffers
   volatile uint32_t coalescedEvents;     // Both HTF and FTF pending when serviced
   uint32_t readCount;                    // Absolute byte count consumed by the protocol parser
@@ -60,7 +63,7 @@ extern SERIAL_RX_STATE serialRxState[_UART_CNT];
 void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uint32_t baudrate);
 void Serial_DeConfig(uint8_t port);
 
-// Return the monotonic RX byte producer count for a GD32 circular DMA channel.
+// Return the monotonic RX byte producer count for DMA or interrupt-driven RX.
 uint32_t Serial_GetProducedCountRX(uint8_t port);
 
 // retrieve the next reading index in the RX message queue of the provided physical serial port:
@@ -83,11 +86,15 @@ static inline uint32_t Serial_GetWritingIndexRX(uint8_t port)
   if (cacheSize == 0)
     return 0;
 
+#if SERIAL_RX_DMA
   uint32_t remaining = DMA_CHCNT(Serial[port].dma_stream, Serial[port].dma_channelRX);
   if (remaining >= cacheSize)
     return 0;
 
   return cacheSize - remaining;
+#else
+  return dmaL1DataRX[port].wIndex;
+#endif
 }
 
 // retrieve the last submitted or sent message timestamp in the TX message queue of the provided physical serial port
