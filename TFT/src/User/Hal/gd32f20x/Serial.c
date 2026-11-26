@@ -29,6 +29,7 @@ const SERIAL_CFG Serial[_UART_CNT] = {
   #endif
 };
 
+#if SERIAL_RX_DMA
 // disable RX DMA and clear all interrupt flags for a serial port
 static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
 {
@@ -111,6 +112,7 @@ static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
     case _USART6: NVIC_ClearPendingIRQ(DMA1_Channel5_IRQn); break;
   }
 }
+#endif
 
 #ifdef TX_DMA_WRITE
 
@@ -152,6 +154,7 @@ static void Serial_DMA_DisableAndClearFlagsTX(uint8_t port)
 
 #endif
 
+#if SERIAL_RX_DMA
 // Enable the DMA half/full transfer interrupts used to extend the circular
 // DMA position into a monotonic byte counter.
 static void Serial_DMA_RX_EnableIRQ(uint8_t port)
@@ -231,6 +234,7 @@ static void Serial_DMA_RX_ServiceEvents(uint8_t port)
     state->halfTransferEvents++;
   }
 }
+#endif
 
 // Return a monotonic producer count. The critical section prevents the DMA
 // IRQ handler from updating the event count between the position and flag
@@ -240,6 +244,12 @@ uint32_t Serial_GetProducedCountRX(uint8_t port)
   if (port >= _UART_CNT)
     return 0;
 
+#if !SERIAL_RX_DMA
+  if (dmaL1DataRX[port].cache == NULL)
+    return 0;
+
+  return serialRxState[port].receivedBytes;
+#else
   DMA_CIRCULAR_BUFFER * dma = &dmaL1DataRX[port];
   if (dma->cache == NULL || dma->cacheSize < 2)
     return 0;
@@ -288,63 +298,55 @@ uint32_t Serial_GetProducedCountRX(uint8_t port)
   dma->wIndex = position % cacheSize;
   __set_PRIMASK(primask);
   return produced;
+#endif
 }
 
 static inline void Serial_DMA_Config(uint8_t port)
 {
+#if SERIAL_RX_DMA || defined(TX_DMA_WRITE)
   const SERIAL_CFG * cfg = &Serial[port];
-
   rcu_periph_clock_enable(cfg->dma_rcc);                          // enable DMA clock
+#endif
 
+#if SERIAL_RX_DMA
   Serial_DMA_DisableAndClearFlagsRX(port);                        // RX disable DMA and clear all interrupt flags
 
-  DMA_CHPADDR(cfg->dma_stream, cfg->dma_channelRX) = (uint32_t)(&USART_DATA(cfg->uart));     // RX peripheral address (usart)
-  DMA_CHMADDR(cfg->dma_stream, cfg->dma_channelRX) = (uint32_t)(dmaL1DataRX[port].cache);    // RX destination address (memory)
+  DMA_CHPADDR(cfg->dma_stream, cfg->dma_channelRX) = (uint32_t)(&USART_DATA(cfg->uart));     // RX peripheral address
+  DMA_CHMADDR(cfg->dma_stream, cfg->dma_channelRX) = (uint32_t)(dmaL1DataRX[port].cache);    // RX destination address
   DMA_CHCNT(cfg->dma_stream, cfg->dma_channelRX) = (uint32_t)(dmaL1DataRX[port].cacheSize);  // RX buffer size
 
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) = 0;             // RX clear control register
 
-  // primary serial port priority at highest level (TX higher than RX)
   if (port == SERIAL_PORT)
-    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (2<<12);    // RX priority level: High
-  else
-    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (0<<12);    // RX priority level: Low
+    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (2<<12);    // Primary UART: high priority
 
-  //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (0<<10);    // RX memory data size: 8 bit
-  //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (0<<8);     // RX peripheral data size: 8 bit
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<7);       // RX memory increment mode
-  //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (0<<6);     // RX peripheral no increment mode
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<5);       // RX circular mode enabled
-  //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (0<<4);     // RX data transfer direction: Peripheral-to-memory
-
-  #ifdef TX_DMA_WRITE  // TX DMA based serial writing
-    Serial_DMA_DisableAndClearFlagsTX(port);                      // TX disable DMA and clear all interrupt flags
-
-    DMA_CHPADDR(cfg->dma_stream, cfg->dma_channelTX) = (uint32_t)(&USART_DATA(cfg->uart));  // TX peripheral address (usart)
-
-    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) = 0;           // TX clear control register
-
-    // primary serial port priority at highest level (TX higher than RX)
-    if (port == SERIAL_PORT)
-      DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (3<<12);  // TX priority level: Very high
-    else
-      DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<12);  // TX priority level: Medium
-
-    //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (0<<10);  // TX memory data size: 8 bit
-    //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (0<<8);   // TX peripheral data size: 8 bit
-    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<7);     // TX memory increment mode
-    //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (0<<6);   // TX peripheral no increment mode
-    //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (0<<5);   // TX circular mode disabled
-    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<4);     // TX data transfer direction: Memory-to-Peripheral
-
-    USART_CTL2(cfg->uart) |= (1<<7);                              // enable DMA transmitter (DMAT)
-    //DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<0);   // TX enable DMA, done later when needed
-  #endif
 
   USART_CTL2(cfg->uart) |= (1<<6);                                // enable DMA receiver (DMAR)
 
   Serial_DMA_RX_EnableIRQ(port);
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<0);       // RX enable DMA
+#endif
+
+#ifdef TX_DMA_WRITE
+  Serial_DMA_DisableAndClearFlagsTX(port);                        // TX disable DMA and clear all interrupt flags
+
+  DMA_CHPADDR(cfg->dma_stream, cfg->dma_channelTX) = (uint32_t)(&USART_DATA(cfg->uart));  // TX peripheral address
+  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) = 0;             // TX clear control register
+
+  if (port == SERIAL_PORT)
+    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (3<<12);    // Primary UART: very high priority
+  else
+    DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<12);    // Other UARTs: medium priority
+
+  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<7);       // TX memory increment mode
+  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<4);       // TX memory-to-peripheral direction
+
+  USART_CTL2(cfg->uart) |= (1<<7);                                // enable DMA transmitter (DMAT)
+#else
+  (void)port;
+#endif
 }
 
 static void Serial_ClearData(uint8_t port)
@@ -373,11 +375,13 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
   // requests before either DMA buffer can be released or replaced.
   UART_DeConfig(port);
 
-  // Enable the DMA clock before inspecting or stopping a previously configured channel.
-  rcu_periph_clock_enable(Serial[port].dma_rcc);
-
-  // Stop an existing channel before releasing or replacing its DMA buffer.
-  Serial_DMA_DisableAndClearFlagsRX(port);
+  // Stop the DMA channels used by this build before replacing their buffers.
+  #if SERIAL_RX_DMA || defined(TX_DMA_WRITE)
+    rcu_periph_clock_enable(Serial[port].dma_rcc);
+  #endif
+  #if SERIAL_RX_DMA
+    Serial_DMA_DisableAndClearFlagsRX(port);
+  #endif
   #ifdef TX_DMA_WRITE
     Serial_DMA_DisableAndClearFlagsTX(port);
   #endif
@@ -394,7 +398,11 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
   dmaL1DataTX[port].cache = malloc(cacheSizeTX);
   while (!dmaL1DataTX[port].cache);                           // TX malloc failed, blocking!
 
-  UART_Config(port, baudrate, USART_INT_IDLE, IDLE_LINE_IT);  // configure serial line with or without IDLE Line interrupt
+  #if SERIAL_RX_DMA
+    UART_Config(port, baudrate, USART_INT_IDLE, IDLE_LINE_IT);  // RX is serviced by DMA
+  #else
+    UART_Config(port, baudrate, USART_INT_RBNE, true);          // RX is serviced by USART receive interrupt
+  #endif
 
   Serial_DMA_Config(port);
 }
@@ -405,10 +413,14 @@ void Serial_DeConfig(uint8_t port)
   UART_DeConfig(port);
 
   // DeInit is also called for serial ports that may never have been enabled.
-  rcu_periph_clock_enable(Serial[port].dma_rcc);
+  #if SERIAL_RX_DMA || defined(TX_DMA_WRITE)
+    rcu_periph_clock_enable(Serial[port].dma_rcc);
+  #endif
 
   // Stop DMA before freeing its target/source memory.
-  Serial_DMA_DisableAndClearFlagsRX(port);
+  #if SERIAL_RX_DMA
+    Serial_DMA_DisableAndClearFlagsRX(port);
+  #endif
 
   #ifdef TX_DMA_WRITE
     Serial_DMA_DisableAndClearFlagsTX(port);
@@ -481,6 +493,7 @@ void Serial_Put(uint8_t port, const char * msg)
 
 #endif
 
+#if SERIAL_RX_DMA
 // DMA RX IRQ entry points. The handler only accounts for completed DMA
 // half-buffers; byte parsing and line handling remain in the main context.
 static void Serial_DMA_RX_IRQHandler(uint8_t port)
@@ -494,10 +507,34 @@ void DMA0_Channel5_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_USART2); }
 void DMA1_Channel1_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_UART5); }
 void DMA1_Channel2_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_UART4); }
 void DMA1_Channel5_IRQHandler(void) { Serial_DMA_RX_IRQHandler(_USART6); }
+#endif
 
 // ISR, serial interrupt handler
 void USART_IRQHandler(uint8_t port)
 {
+  #if !SERIAL_RX_DMA
+    // RX interrupt mode: read STAT0 then DATA, then append the received byte
+    // to the same circular buffer consumed by SerialConnection.c.
+    uint32_t rxStatus = USART_STAT0(Serial[port].uart);
+    if ((rxStatus & (USART_STAT0_RBNE | USART_STAT0_ORERR)) != 0)
+    {
+      uint8_t rxByte = (uint8_t)USART_DATA(Serial[port].uart);  // clears RBNE/ORE
+      if ((rxStatus & USART_STAT0_RBNE) != 0)
+      {
+        DMA_CIRCULAR_BUFFER * rx = &dmaL1DataRX[port];
+        SERIAL_RX_STATE * state = &serialRxState[port];
+        if (rx->cache != NULL && rx->cacheSize != 0)
+        {
+          uint32_t produced = state->receivedBytes;
+          rx->cache[produced % rx->cacheSize] = (char)rxByte;
+          rx->wIndex = (produced + 1U) % rx->cacheSize;
+          __DMB();
+          state->receivedBytes = produced + 1U;
+        }
+      }
+    }
+  #endif
+
   #if IDLE_LINE_IT == true  // IDLE Line interrupt
     if ((USART_STAT0(Serial[port].uart) & USART_STAT0_IDLEF) != RESET)  // check for IDLE Line interrupt flag
     {
