@@ -67,7 +67,8 @@ static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
   // Disable DMA interrupt sources before stopping and clearing the channel.
   dma_interrupt_disable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_HTF);
   dma_interrupt_disable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_FTF);
-  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) &= ~(1<<0);  // disable RX DMA
+  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) &= ~(1<<0);  // request RX DMA disable
+  while ((DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) & 1U) != 0) { }  // wait until CHEN is cleared
 
   // table 12.5.2, 4 bits per channel, shift = channel * 4
 
@@ -116,7 +117,8 @@ static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
 // disable TX DMA and clear all interrupt flags for a serial port
 static void Serial_DMA_DisableAndClearFlagsTX(uint8_t port)
 {
-  DMA_CHCTL(Serial[port].dma_stream, Serial[port].dma_channelTX) &= ~(1<<0);  // disable TX DMA
+  DMA_CHCTL(Serial[port].dma_stream, Serial[port].dma_channelTX) &= ~(1<<0);  // request TX DMA disable
+  while ((DMA_CHCTL(Serial[port].dma_stream, Serial[port].dma_channelTX) & 1U) != 0) { }  // wait until CHEN is cleared
 
   // table 12.5.2, 4 bits per channel, shift = channel * 4
 
