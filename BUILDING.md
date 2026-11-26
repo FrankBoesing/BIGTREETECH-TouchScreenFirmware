@@ -41,10 +41,10 @@ Build artifacts are placed below:
 After a successful build of the GD TFT35 E3 target, the firmware is also copied to:
 
 ```
-Firmware-Bugfix/BIGTREE_GD_TFT35_V3.0_E3.27.x.bin
+Firmware-Bugfix/BIGTREE_GD_TFT35_V3.0_E3.28.x.bin
 ```
 
-The dedicated folder distinguishes this build from the official release files. The **27.x filename is intentional**: the currently installed TFT updater searches for the exact versioned name it was built with. The binary contents are built from the 28.x branch and identify themselves as 28.x after flashing. Copy the file to the SD card root without changing its name. After the first successful update, subsequent update files must use the 28.x name.
+The dedicated folder distinguishes this build from the official release files. The **28.x filename matches the currently installed firmware line** and must be copied to the SD card root without changing its name.
 
 ## First test after flashing
 
