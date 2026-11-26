@@ -109,22 +109,25 @@ static inline void UART_Protocol_Init(uint8_t port, uint32_t baud)
   usart_enable(uart[port]);
 }
 
-static inline void UART_IRQ_Init(uint8_t port, uint16_t usart_it, bool idle_interrupt)
+static inline void UART_IRQ_Init(uint8_t port, uint16_t usart_it, bool interrupt_enable)
 {
   NVIC_ClearPendingIRQ(uart_irq[port]);
   nvic_irq_enable(uart_irq[port], 0U, 0U);
 
-  if (idle_interrupt)  // enable or disable serial line IDLE interrupt
+  if (interrupt_enable)
   {
     usart_interrupt_enable(uart[port], usart_it);
-    usart_interrupt_flag_clear(uart[port], usart_it);
+    // IDLE is cleared explicitly; RBNE is cleared by the STAT0/DATA read in
+    // the receive ISR and must not be cleared here by discarding a byte.
+    if (usart_it == USART_INT_IDLE)
+      usart_interrupt_flag_clear(uart[port], usart_it);
   }
 }
 
-void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool idle_interrupt)
+void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool interrupt_enable)
 {
   UART_Protocol_Init(port, baud);
-  UART_IRQ_Init(port, usart_it, idle_interrupt);
+  UART_IRQ_Init(port, usart_it, interrupt_enable);
   UART_GPIO_Init(port);  // after all initialization is completed, enable IO, otherwise a 0xFF will be sent automatically after power-on
 }
 
