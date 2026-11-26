@@ -159,6 +159,16 @@ bool Serial_DataAvailableRX(uint8_t port)
   uint32_t produced = Serial_GetProducedCountRX(port);
   dma->wIndex = produced % cacheSize;
 
+  // A USART overrun means at least one byte was lost. Discard the uncertain
+  // fragment and resume parsing only after the next LF boundary.
+  if (state->observedUartOverrunCount != state->uartOverrunCount)
+  {
+    state->observedUartOverrunCount = state->uartOverrunCount;
+    state->droppedLineCount++;
+    Serial_RX_Resync(port, produced, false);
+    return false;
+  }
+
   // If both DMA boundary flags were pending together, interrupt service was
   // delayed by at least half a DMA buffer. Do not parse any fragment spanning
   // that uncertain interval.
@@ -242,6 +252,16 @@ uint16_t Serial_Get(uint8_t port, char * buf, uint16_t bufSize)
   const uint32_t cacheSize = dma->cacheSize;
   uint32_t produced = Serial_GetProducedCountRX(port);
   dma->wIndex = produced % cacheSize;
+
+  // Check again here: an overrun may occur after DataAvailableRX() reports a
+  // complete line but before the caller retrieves it.
+  if (state->observedUartOverrunCount != state->uartOverrunCount)
+  {
+    state->observedUartOverrunCount = state->uartOverrunCount;
+    state->droppedLineCount++;
+    Serial_RX_Resync(port, produced, false);
+    return 0;
+  }
 
   if (state->observedCoalescedEvents != state->coalescedEvents)
   {
