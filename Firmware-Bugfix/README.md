@@ -2,12 +2,20 @@
 
 Building the `BIGTREE_GD_TFT35_E3_V3_0` PlatformIO environment copies the resulting firmware binary into this directory.
 
-The binary keeps the official BIGTREETECH filename generated from the target hardware and software version. Do not rename it: the TFT bootloader expects the model-specific filename.
+## First update from the installed 27.x firmware
 
-To flash:
+The file is intentionally named:
 
-1. Copy the `.bin` file from this directory to the root of the TFT SD card.
-2. Keep the filename and capitalization unchanged.
-3. Insert the card into the TFT and reboot or press Reset to start the update.
+```
+BIGTREE_GD_TFT35_V3.0_E3.27.x.bin
+```
+
+This matches the filename expected by the currently installed TFT firmware, which the user has confirmed accepts the `27.x` name. The file contents are built from this branch's `28.x` sources; after flashing, the new firmware identifies itself as version `28.x`.
+
+Do not rename the file before copying it to the TFT SD card root.
+
+## Later updates
+
+After the 28.x bugfix firmware is installed, its updater expects the corresponding `28.x` filename for subsequent firmware updates. The post-build copy script must then be switched to `BIGTREE_GD_TFT35_V3.0_E3.28.x.bin`.
 
 The generated `.bin` is ignored by Git and will be recreated by the next successful build.
