@@ -71,7 +71,15 @@ static inline uint32_t Serial_GetReadingIndexRX(uint8_t port)
 //   - return value: next writing index
 static inline uint32_t Serial_GetWritingIndexRX(uint8_t port)
 {
-  return dmaL1DataRX[port].cacheSize - DMA_CHCNT(Serial[port].dma_stream, Serial[port].dma_channelRX);
+  uint32_t cacheSize = dmaL1DataRX[port].cacheSize;
+  if (cacheSize == 0)
+    return 0;
+
+  uint32_t remaining = DMA_CHCNT(Serial[port].dma_stream, Serial[port].dma_channelRX);
+  if (remaining >= cacheSize)
+    return 0;
+
+  return cacheSize - remaining;
 }
 
 // retrieve the last submitted or sent message timestamp in the TX message queue of the provided physical serial port
