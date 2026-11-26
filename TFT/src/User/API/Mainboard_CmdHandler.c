@@ -285,9 +285,12 @@ static bool sendCmd(bool purge, bool avoidTerminal)
 
   if (!purge)  // if command is not purged, send it to printer
   {
-    // if the command under processing is from command queue and COMMAND_CHECKSUM feature is enabled,
-    // apply line number and checksum and store the new gcode on the retry buffer
-    if (!cmdRetryInfo.retry && GET_BIT(infoSettings.general_settings, INDEX_COMMAND_CHECKSUM) == 1)
+    // Do not use numbered/checksummed G-code until the first valid printer
+    // response established the connection. The initial M105 probe must be
+    // accepted independently of the printer's current line-number state.
+    // Once connected, apply COMMAND_CHECKSUM and retain the exact line for resend.
+    if (!cmdRetryInfo.retry && infoHost.connected &&
+        GET_BIT(infoSettings.general_settings, INDEX_COMMAND_CHECKSUM) == 1)
       setCmdRetryInfo(addCmdLineNumberAndChecksum(cmd_ptr, cmd_base_index, &cmd_len));  // cmd_ptr and cmd_len are updated
 
     // send or resend command
