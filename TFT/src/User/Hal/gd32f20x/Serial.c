@@ -322,11 +322,6 @@ static inline void Serial_DMA_Config(uint8_t port)
 
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<7);       // RX memory increment mode
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<5);       // RX circular mode enabled
-
-  USART_CTL2(cfg->uart) |= (1<<6);                                // enable DMA receiver (DMAR)
-
-  Serial_DMA_RX_EnableIRQ(port);
-  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<0);       // RX enable DMA
 #endif
 
 #ifdef TX_DMA_WRITE
@@ -344,7 +339,15 @@ static inline void Serial_DMA_Config(uint8_t port)
   DMA_CHCTL(cfg->dma_stream, cfg->dma_channelTX) |= (1<<4);       // TX memory-to-peripheral direction
 
   USART_CTL2(cfg->uart) |= (1<<7);                                // enable DMA transmitter (DMAT)
-#else
+#endif
+
+#if SERIAL_RX_DMA
+  USART_CTL2(cfg->uart) |= (1<<6);                                // enable DMA receiver (DMAR)
+  Serial_DMA_RX_EnableIRQ(port);
+  DMA_CHCTL(cfg->dma_stream, cfg->dma_channelRX) |= (1<<0);       // RX enable DMA
+#endif
+
+#if !SERIAL_RX_DMA && !defined(TX_DMA_WRITE)
   (void)port;
 #endif
 }
