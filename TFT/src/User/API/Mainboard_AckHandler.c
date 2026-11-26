@@ -387,6 +387,15 @@ void parseAck(void)
 
       // the first response should be such as "T:25/50\n"
       // the "T:0" response is specifically for Marlin when EXTRUDER_COUNT:0
+      // A checksum rejection can occur before the first temperature response.
+      // Handle Resend here as well; otherwise the initial M105 line number is
+      // left out of sync and the failed command is never retransmitted.
+      if (ack_seen("Resend:"))
+      {
+        handleCmdLineNumberMismatch((uint32_t) ack_value());
+        goto parse_end;
+      }
+
       if (!(ack_seen("@") && ack_seen("T:")) && !ack_seen("T0:") && !ack_seen("T:0"))
         goto parse_end;
 
