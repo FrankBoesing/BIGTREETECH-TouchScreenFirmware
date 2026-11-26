@@ -120,3 +120,6 @@ cmake-build-*
 .pydevproject
 .settings
 .classpath
+
+# Local firmware output from the bugfix build
+Firmware-Bugfix/*.bin
