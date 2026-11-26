@@ -34,6 +34,36 @@ static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
 {
   const SERIAL_CFG * cfg = &Serial[port];
 
+  // Disable the NVIC line first so a stale pending DMA IRQ cannot access
+  // serialRxState while the channel or its buffer is being reconfigured.
+  switch (port)
+  {
+    case _USART1:
+      NVIC_DisableIRQ(DMA0_Channel4_IRQn);
+      NVIC_ClearPendingIRQ(DMA0_Channel4_IRQn);
+      break;
+    case _USART2:
+      NVIC_DisableIRQ(DMA0_Channel5_IRQn);
+      NVIC_ClearPendingIRQ(DMA0_Channel5_IRQn);
+      break;
+    case _USART3:
+      NVIC_DisableIRQ(DMA0_Channel2_IRQn);
+      NVIC_ClearPendingIRQ(DMA0_Channel2_IRQn);
+      break;
+    case _UART4:
+      NVIC_DisableIRQ(DMA1_Channel2_IRQn);
+      NVIC_ClearPendingIRQ(DMA1_Channel2_IRQn);
+      break;
+    case _UART5:
+      NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+      NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
+      break;
+    case _USART6:
+      NVIC_DisableIRQ(DMA1_Channel5_IRQn);
+      NVIC_ClearPendingIRQ(DMA1_Channel5_IRQn);
+      break;
+  }
+
   // Disable DMA interrupt sources before stopping and clearing the channel.
   dma_interrupt_disable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_HTF);
   dma_interrupt_disable(cfg->dma_stream, cfg->dma_channelRX, DMA_INT_FTF);
@@ -66,6 +96,18 @@ static void Serial_DMA_DisableAndClearFlagsRX(uint8_t port)
     case _USART6:
       DMA_INTC(DMA1) = (0x0F << 20);  // DMA1 channel 5
       break;
+  }
+
+  // A transfer may have completed between the initial NVIC disable and the
+  // DMA channel stop. Clear that final pending bit before a later re-enable.
+  switch (port)
+  {
+    case _USART1: NVIC_ClearPendingIRQ(DMA0_Channel4_IRQn); break;
+    case _USART2: NVIC_ClearPendingIRQ(DMA0_Channel5_IRQn); break;
+    case _USART3: NVIC_ClearPendingIRQ(DMA0_Channel2_IRQn); break;
+    case _UART4:  NVIC_ClearPendingIRQ(DMA1_Channel2_IRQn); break;
+    case _UART5:  NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn); break;
+    case _USART6: NVIC_ClearPendingIRQ(DMA1_Channel5_IRQn); break;
   }
 }
 
@@ -216,16 +258,21 @@ uint32_t Serial_GetProducedCountRX(uint8_t port)
   for (;;)
   {
     uint32_t remaining = DMA_CHCNT(Serial[port].dma_stream, Serial[port].dma_channelRX);
-
-    // CNT may briefly be zero at the circular reload boundary. Normalise the
-    // resulting position so it is always in [0, cacheSize).
-    if (remaining <= cacheSize)
-      position = (remaining == 0) ? 0 : cacheSize - remaining;
-    else
-      position = 0;
-
     FlagStatus halfPending = dma_flag_get(Serial[port].dma_stream, Serial[port].dma_channelRX, DMA_FLAG_HTF);
     FlagStatus fullPending = dma_flag_get(Serial[port].dma_stream, Serial[port].dma_channelRX, DMA_FLAG_FTF);
+
+    // On GD32F20x the transfer counter can be observed at zero for the few
+    // bus cycles between the final transfer and circular reload. Do not
+    // publish a producer position from this transient state: the full-transfer
+    // flag (or the reloaded counter) must first make the wrap unambiguous.
+    if (remaining == 0 && fullPending == RESET &&
+        (DMA_CHCTL(Serial[port].dma_stream, Serial[port].dma_channelRX) & 1U) != 0)
+      continue;
+
+    // Keep the temporary end position equal to cacheSize at CNT == 0.
+    // It is equivalent to position zero for indexing, but preserves the
+    // boundary until the full-transfer event has been accounted for.
+    position = (remaining <= cacheSize) ? (cacheSize - remaining) : 0;
 
     if ((halfPending == RESET) && (fullPending == RESET))
       break;
@@ -236,7 +283,7 @@ uint32_t Serial_GetProducedCountRX(uint8_t port)
   uint32_t completedHalfBuffers = serialRxState[port].halfTransferEvents;
   uint32_t produced = completedHalfBuffers * halfSize + (position % halfSize);
 
-  dma->wIndex = position;
+  dma->wIndex = position % cacheSize;
   __set_PRIMASK(primask);
   return produced;
 }
@@ -320,6 +367,10 @@ static void Serial_ClearData(uint8_t port)
 
 void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uint32_t baudrate)
 {
+  // Stop the USART first. This disables its NVIC line and peripheral DMA
+  // requests before either DMA buffer can be released or replaced.
+  UART_DeConfig(port);
+
   // Enable the DMA clock before inspecting or stopping a previously configured channel.
   rcu_periph_clock_enable(Serial[port].dma_rcc);
 
@@ -348,6 +399,9 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
 
 void Serial_DeConfig(uint8_t port)
 {
+  // Stop the USART and its IRQ before stopping DMA and freeing either buffer.
+  UART_DeConfig(port);
+
   // DeInit is also called for serial ports that may never have been enabled.
   rcu_periph_clock_enable(Serial[port].dma_rcc);
 
@@ -358,7 +412,6 @@ void Serial_DeConfig(uint8_t port)
     Serial_DMA_DisableAndClearFlagsTX(port);
   #endif
 
-  UART_DeConfig(port);
   Serial_ClearData(port);
 }
 

@@ -5,8 +5,16 @@
 #include "variants.h"  // for rcu_periph_enum etc.
 #include "uart.h"      // for _UART_CNT etc.
 
-// comment out this line to use TX interrupt based serial writing instead of TX DMA based serial writing
-#define TX_DMA_WRITE
+// UART TX implementation selection.
+// SERIAL_TX_DMA=1 uses DMA TX (default); SERIAL_TX_DMA=0 uses the
+// interrupt-driven byte transmitter while keeping RX DMA enabled.
+#ifndef SERIAL_TX_DMA
+  #define SERIAL_TX_DMA 1
+#endif
+
+#if SERIAL_TX_DMA
+  #define TX_DMA_WRITE
+#endif
 
 typedef struct
 {

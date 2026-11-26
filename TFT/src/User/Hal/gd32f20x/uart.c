@@ -72,6 +72,11 @@ static uint32_t const uart[_UART_CNT] = {
   USART5,  // TX--PG14 RX--PG9  // error
 };
 
+static const IRQn_Type uart_irq[_UART_CNT] = {
+  USART0_IRQn, USART1_IRQn, USART2_IRQn,
+  UART3_IRQn, UART4_IRQn, USART5_IRQn
+};
+
 static const uint16_t uart_tx[_UART_CNT] = {USART1_TX_PIN, USART2_TX_PIN, USART3_TX_PIN, UART4_TX_PIN, UART5_TX_PIN, USART6_TX_PIN};  // TX
 static const uint16_t uart_rx[_UART_CNT] = {USART1_RX_PIN, USART2_RX_PIN, USART3_RX_PIN, UART4_RX_PIN, UART5_RX_PIN, USART6_RX_PIN};  // RX
 
@@ -106,8 +111,8 @@ static inline void UART_Protocol_Init(uint8_t port, uint32_t baud)
 
 static inline void UART_IRQ_Init(uint8_t port, uint16_t usart_it, bool idle_interrupt)
 {
-  uint32_t IRQ_Channel[_UART_CNT] = {USART0_IRQn, USART1_IRQn, USART2_IRQn, UART3_IRQn, UART4_IRQn, USART5_IRQn};
-  nvic_irq_enable(IRQ_Channel[port], 0U, 0U);
+  NVIC_ClearPendingIRQ(uart_irq[port]);
+  nvic_irq_enable(uart_irq[port], 0U, 0U);
 
   if (idle_interrupt)  // enable or disable serial line IDLE interrupt
   {
@@ -125,10 +130,16 @@ void UART_Config(uint8_t port, uint32_t baud, uint16_t usart_it, bool idle_inter
 
 void UART_DeConfig(uint8_t port)
 {
+  // Prevent a stale USART interrupt from running against a buffer that is
+  // about to be released by Serial_DeConfig() or replaced by Serial_Config().
+  NVIC_DisableIRQ(uart_irq[port]);
+
   UART_GPIO_DeInit(port);
 
   rcu_periph_reset_enable(rcu_uart_rst[port]);
   rcu_periph_reset_disable(rcu_uart_rst[port]);  // reset clock
+
+  NVIC_ClearPendingIRQ(uart_irq[port]);
 }
 
 void UART_Write(uint8_t port, uint8_t d)

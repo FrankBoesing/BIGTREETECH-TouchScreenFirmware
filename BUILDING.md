@@ -46,6 +46,16 @@ Firmware-Bugfix/BIGTREE_GD_TFT35_V3.0_E3.28.x.bin
 
 The dedicated folder distinguishes this build from the official release files. The **28.x filename matches the currently installed firmware line** and must be copied to the SD card root without changing its name.
 
+## Diagnostic build: interrupt-driven TX
+
+To isolate the TX-DMA path, a second environment is available:
+
+```powershell
+pio run -e BIGTREE_GD_TFT35_E3_V3_0_TXIRQ
+```
+
+This build keeps the same board, firmware version, UART configuration and RX-DMA implementation. It changes only UART TX from DMA to the USART transmit-empty interrupt. Its update file is copied to the same `Firmware-Bugfix` filename above, so build and copy only one environment at a time. Use this image as a diagnostic comparison, not as a presumed permanent fix.
+
 ## First test after flashing
 
 The firmware default and the supplied `config.ini` use `tx_delay:4`. Existing settings stored in the TFT's persistent memory are not overwritten by a firmware update. For this branch, set the value explicitly on the display under **Settings → Feature → TX delay → 4 ms** before testing. This value follows BTT's 3–4 ms recommendation for `ADVANCED_OK` enabled and also provides margin when it is disabled.
