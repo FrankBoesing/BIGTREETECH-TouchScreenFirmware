@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 // Parse the leading numeric G-code identifier (M/G/T) without treating
 // a missing number as zero. A truncated line such as "M" must never become M0.
