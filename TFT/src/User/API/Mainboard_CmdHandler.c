@@ -561,7 +561,7 @@ void handleCmdLineNumberMismatch(const uint32_t lineNumber)
 
     CMD cmd;
 
-    sprintf(cmd, "M110 N%lu", lineNumber);
+    snprintf(cmd, CMD_MAX_SIZE, "M110 N%lu\n", lineNumber);
 
     sendEmergencyCmd(cmd);  // immediately send M110 command to set new base line number on mainboard
   }
