@@ -38,6 +38,14 @@ Build artifacts are placed below:
 .pio/build/BIGTREE_GD_TFT35_E3_V3_0/
 ```
 
+After a successful build of the GD TFT35 E3 target, the firmware is also copied to:
+
+```
+Firmware-Bugfix/BIGTREE_GD_TFT35_V3.0_E3.28.x.bin
+```
+
+The dedicated folder distinguishes this build from the official release files. **Do not rename the `.bin` file**; the TFT bootloader expects the model-specific filename. Copy that file to the SD card root without changing its name.
+
 ## First test after flashing
 
 The firmware default and the supplied `config.ini` use `tx_delay:4`. Existing settings stored in the TFT's persistent memory are not overwritten by a firmware update. For this branch, set the value explicitly on the display under **Settings → Feature → TX delay → 4 ms** before testing. This value follows BTT's 3–4 ms recommendation for `ADVANCED_OK` enabled and also provides margin when it is disabled.
