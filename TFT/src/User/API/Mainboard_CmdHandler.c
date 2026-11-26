@@ -365,6 +365,35 @@ static bool cmd_seen(const char code)
   return false;
 }
 
+// Parse the leading numeric G-code identifier (M/G/T) without treating
+// a missing number as zero. A truncated line such as "M" must never become M0.
+static bool parseCommandCode(const char * cmd, const char expectedLetter, int32_t * value)
+{
+  if (cmd == NULL || value == NULL || cmd[0] != expectedLetter)
+    return false;
+
+  const char * p = cmd + 1;
+  if (*p < '0' || *p > '9')
+    return false;
+
+  uint32_t parsed = 0;
+
+  while (*p >= '0' && *p <= '9')
+  {
+    uint32_t digit = (uint32_t)(*p - '0');
+
+    // Keep the result representable as a signed 32-bit integer.
+    if (parsed > 214748364U || (parsed == 214748364U && digit > 7U))
+      return false;
+
+    parsed = parsed * 10U + digit;
+    p++;
+  }
+
+  *value = (int32_t)parsed;
+  return true;
+}
+
 // get the int after "code". Call after cmd_seen(code)
 static int32_t cmd_value(void)
 {
@@ -582,9 +611,11 @@ void handleCmd(CMD cmd, const SERIAL_PORT_INDEX portIndex)
 
   // check if the received gcode is an emergency command and parse it accordingly
 
-  if (cmdPtr[0] == 'M')
+  int32_t commandNumber;
+
+  if (parseCommandCode(cmdPtr, 'M', &commandNumber))
   {
-    switch (strtol(&cmdPtr[1], NULL, 10))
+    switch (commandNumber)
     {
       case 108:  // M108
       case 112:  // M112
@@ -654,6 +685,13 @@ void sendQueueCmd(void)
 
   bool fromTFT = getCmd();  // retrieve leading gcode in the queue and check if it is originated by TFT or other hosts
 
+  int32_t commandNumber = -1;
+  bool hasCommandNumber = false;
+  char commandLetter = cmd_ptr[cmd_base_index];
+
+  if (commandLetter == 'M' || commandLetter == 'G' || commandLetter == 'T')
+    hasCommandNumber = parseCommandCode(&cmd_ptr[cmd_base_index], commandLetter, &commandNumber);
+
   #ifdef SERIAL_PORT_2
     if (writing_mode != NO_WRITING)  // if writing mode (previously triggered by M28)
     {
@@ -669,7 +707,7 @@ void sendQueueCmd(void)
       }
       else  // otherwise, if the command is from remote to onboard media
       {
-        if (cmd_ptr[cmd_base_index] == 'M' && cmd_value() == 29)  // if M29, stop writing mode
+        if (commandLetter == 'M' && hasCommandNumber && commandNumber == 29)  // if M29, stop writing mode
           writing_mode = NO_WRITING;
 
         goto send_cmd;  // send the command
@@ -683,7 +721,10 @@ void sendQueueCmd(void)
   {
     // parse M-codes
     case 'M':
-      switch (cmd_value())
+      if (!hasCommandNumber)
+        break;  // incomplete/corrupted M-code: do not interpret it as M0
+
+      switch (commandNumber)
       {
         case 0:  // M0
         case 1:  // M1
@@ -1474,7 +1515,10 @@ void sendQueueCmd(void)
       break;  // end parsing M-codes
 
     case 'G':
-      switch (cmd_value())
+      if (!hasCommandNumber)
+        break;  // incomplete/corrupted G-code
+
+      switch (commandNumber)
       {
         case 0:  // G0
         case 1:  // G1
@@ -1581,7 +1625,8 @@ void sendQueueCmd(void)
       break;  // end parsing G-codes
 
     case 'T':
-      heatSetToolIndex(cmd_value());
+      if (hasCommandNumber)
+        heatSetToolIndex((uint8_t)commandNumber);
       break;
   }  // end parsing cmd
 
