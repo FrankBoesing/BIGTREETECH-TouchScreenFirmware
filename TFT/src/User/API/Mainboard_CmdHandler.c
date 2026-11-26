@@ -668,6 +668,14 @@ void sendQueueCmd(void)
   // may interpret a bare "M" as command number zero (M0 / pause).
   if ((commandLetter == 'M' || commandLetter == 'G' || commandLetter == 'T') && !hasCommandNumber)
   {
+    // A command received from an auxiliary UART still needs a response;
+    // otherwise the remote sender could wait forever for the mainboard ACK.
+    if (cmd_port_index != PORT_1)
+    {
+      Serial_Forward(cmd_port_index, "Error: Invalid G-code command\\n");
+      Serial_Forward(cmd_port_index, "ok\\n");
+    }
+
     sendCmd(true, false);
     return;
   }
