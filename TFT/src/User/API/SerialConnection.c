@@ -284,7 +284,7 @@ uint16_t Serial_Get(uint8_t port, char * buf, uint16_t bufSize)
   for (uint32_t i = 0; i < copyLength; i++)
     buf[i] = dma->cache[(start + i) % cacheSize];
 
-  buf[copyLength] = '\\0';
+  buf[copyLength] = '\0';
   Serial_RX_ConsumeLine(port);
 
   return (uint16_t)copyLength;
@@ -347,7 +347,7 @@ uint16_t Serial_Get(uint8_t port, char * buf, uint16_t bufSize)
       *(buf++) = cache[rIndex++];
   }
 
-  *buf = '\\0';
+  *buf = '\0';
   dmaL1Data_ptr->flag = dmaL1Data_ptr->rIndex = (flag + 1) % cacheSize;
   return msgSize;
 }
