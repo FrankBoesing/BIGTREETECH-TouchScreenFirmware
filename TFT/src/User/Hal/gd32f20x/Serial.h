@@ -30,12 +30,30 @@ typedef struct
   #endif
 } SERIAL_CFG;
 
+typedef struct
+{
+  volatile uint32_t halfTransferEvents;  // Number of completed DMA half-buffers
+  volatile uint32_t coalescedEvents;     // Both HTF and FTF pending when serviced
+  uint32_t readCount;                    // Absolute byte count consumed by the protocol parser
+  uint32_t scanCount;                    // Absolute byte count scanned for line endings
+  uint32_t lineEndCount;                 // Absolute position of the LF for the pending line
+  uint32_t observedCoalescedEvents;
+  uint32_t overrunCount;
+  uint32_t droppedLineCount;
+  uint8_t lineReady;
+  uint8_t discardUntilLf;
+} SERIAL_RX_STATE;
+
 extern DMA_CIRCULAR_BUFFER dmaL1DataRX[_UART_CNT];
 extern DMA_CIRCULAR_BUFFER dmaL1DataTX[_UART_CNT];
 extern const SERIAL_CFG Serial[_UART_CNT];
+extern SERIAL_RX_STATE serialRxState[_UART_CNT];
 
 void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uint32_t baudrate);
 void Serial_DeConfig(uint8_t port);
+
+// Return the monotonic RX byte producer count for a GD32 circular DMA channel.
+uint32_t Serial_GetProducedCountRX(uint8_t port);
 
 // retrieve the next reading index in the RX message queue of the provided physical serial port:
 //   - port: physical serial port
