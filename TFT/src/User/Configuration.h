@@ -144,7 +144,7 @@
  *   Unit: [time in milliseconds]
  *   Value range: [min: 0, max: 10]
  */
-#define TX_DELAY 0  // Default: 0
+#define TX_DELAY 2  // Default: 2 ms (recommended when ADVANCED_OK is disabled)
 
 /**
  * TX Prefetch
