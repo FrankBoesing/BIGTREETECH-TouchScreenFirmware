@@ -125,31 +125,37 @@ static void Serial_DMA_RX_EnableIRQ(uint8_t port)
   {
     case _USART1:
       NVIC_SetPriority(DMA0_Channel4_IRQn, 2U);
+      NVIC_ClearPendingIRQ(DMA0_Channel4_IRQn);
       NVIC_EnableIRQ(DMA0_Channel4_IRQn);
       break;
 
     case _USART2:
       NVIC_SetPriority(DMA0_Channel5_IRQn, 2U);
+      NVIC_ClearPendingIRQ(DMA0_Channel5_IRQn);
       NVIC_EnableIRQ(DMA0_Channel5_IRQn);
       break;
 
     case _USART3:
       NVIC_SetPriority(DMA0_Channel2_IRQn, 2U);
+      NVIC_ClearPendingIRQ(DMA0_Channel2_IRQn);
       NVIC_EnableIRQ(DMA0_Channel2_IRQn);
       break;
 
     case _UART4:
       NVIC_SetPriority(DMA1_Channel2_IRQn, 2U);
+      NVIC_ClearPendingIRQ(DMA1_Channel2_IRQn);
       NVIC_EnableIRQ(DMA1_Channel2_IRQn);
       break;
 
     case _UART5:
       NVIC_SetPriority(DMA1_Channel1_IRQn, 2U);
+      NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
       NVIC_EnableIRQ(DMA1_Channel1_IRQn);
       break;
 
     case _USART6:
       NVIC_SetPriority(DMA1_Channel5_IRQn, 2U);
+      NVIC_ClearPendingIRQ(DMA1_Channel5_IRQn);
       NVIC_EnableIRQ(DMA1_Channel5_IRQn);
       break;
   }
@@ -342,6 +348,9 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
 
 void Serial_DeConfig(uint8_t port)
 {
+  // DeInit is also called for serial ports that may never have been enabled.
+  rcu_periph_clock_enable(Serial[port].dma_rcc);
+
   // Stop DMA before freeing its target/source memory.
   Serial_DMA_DisableAndClearFlagsRX(port);
 
