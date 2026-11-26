@@ -292,6 +292,15 @@ uint32_t Serial_GetProducedCountRX(uint8_t port)
     Serial_DMA_RX_ServiceEvents(port);
   }
 
+  // DMA can overrun the USART data register if a request is not serviced in
+  // time. Poll ORE while interrupts are masked, clear it using the required
+  // STAT0/DATA read sequence, and let the line parser discard the damaged line.
+  if ((USART_STAT0(Serial[port].uart) & USART_STAT0_ORERR) != RESET)
+  {
+    (void)USART_DATA(Serial[port].uart);
+    serialRxState[port].uartOverrunCount++;
+  }
+
   uint32_t completedHalfBuffers = serialRxState[port].halfTransferEvents;
   uint32_t produced = completedHalfBuffers * halfSize + (position % halfSize);
 
@@ -402,12 +411,14 @@ void Serial_Config(uint8_t port, uint32_t cacheSizeRX, uint32_t cacheSizeTX, uin
   while (!dmaL1DataTX[port].cache);                           // TX malloc failed, blocking!
 
   #if SERIAL_RX_DMA
-    UART_Config(port, baudrate, USART_INT_IDLE, IDLE_LINE_IT);  // RX is serviced by DMA
+    UART_ConfigPrepare(port, baudrate, USART_INT_IDLE, IDLE_LINE_IT);  // RX is serviced by DMA
   #else
-    UART_Config(port, baudrate, USART_INT_RBNE, true);          // RX is serviced by USART receive interrupt
+    UART_ConfigPrepare(port, baudrate, USART_INT_RBNE, true);          // RX is serviced by USART receive interrupt
   #endif
 
+  // Arm DMA/RX and TX state before exposing the UART pins to incoming data.
   Serial_DMA_Config(port);
+  UART_EnableGPIO(port);
 }
 
 void Serial_DeConfig(uint8_t port)
@@ -522,6 +533,9 @@ void USART_IRQHandler(uint8_t port)
     if ((rxStatus & (USART_STAT0_RBNE | USART_STAT0_ORERR)) != 0)
     {
       uint8_t rxByte = (uint8_t)USART_DATA(Serial[port].uart);  // clears RBNE/ORE
+      if ((rxStatus & USART_STAT0_ORERR) != 0)
+        serialRxState[port].uartOverrunCount++;
+
       if ((rxStatus & USART_STAT0_RBNE) != 0)
       {
         DMA_CIRCULAR_BUFFER * rx = &dmaL1DataRX[port];
