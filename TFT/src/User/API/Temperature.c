@@ -231,7 +231,9 @@ void heatSetUpdateSeconds(const uint8_t seconds)
 
   heat_update_seconds = seconds;
 
-  if (infoMachineSettings.autoReportTemp && !heat_sending_waiting)
+  // Do not configure auto-report until a valid startup response has
+  // established the connection. Startup probes must remain plain M105.
+  if (infoHost.connected && infoMachineSettings.autoReportTemp && !heat_sending_waiting)
     heat_sending_waiting = storeCmd("M155 S%u\n", heat_update_seconds);
 }
 
