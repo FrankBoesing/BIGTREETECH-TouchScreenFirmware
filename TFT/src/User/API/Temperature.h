@@ -95,6 +95,8 @@ uint8_t heatGetUpdateSeconds(void);                 // get temperature query sec
 void heatSyncUpdateSeconds(const uint8_t seconds);  // set temperature query seconds
 
 void heatSetNextUpdateTime(void);                   // called in parseAck(). Set next temperature query time or timeout
+void heatStartStartupHandshake(void);               // wait before the first M105 and retry until a valid response arrives
+void heatCompleteStartupHandshake(void);            // stop startup probes after the first valid temperature response
 void heatClearSendingWaiting(void);                 // called in sendQueueCmd(). Clear sending waiting for temperature query
 void loopCheckHeater(void);                         // called in loopBackEnd(). Loop for check on Heater
 
