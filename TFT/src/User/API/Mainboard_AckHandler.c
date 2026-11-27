@@ -414,6 +414,9 @@ void parseAck(void)
       if (ack_seen(heaterID[CHAMBER]))
         infoSettings.chamber_en = ENABLED;
 
+      // A valid temperature record proves that the mainboard has completed
+      // enough of its startup to accept normal TFT G-code traffic.
+      heatCompleteStartupHandshake();
       heatSetNextUpdateTime();  // set next temperature query time or timeout
 
       if (!ack_seen("@"))  // it's RepRapFirmware
