@@ -218,6 +218,7 @@ void InfoHost_Init(bool isConnected)
   {
     clearCmdQueue();
     resetPendingQueries();
+    heatStartStartupHandshake();
     resetInfoQueries();
 
     setReminderMsg(LABEL_UNCONNECTED, SYS_STATUS_DISCONNECTED);  // set the no printer attached reminder
