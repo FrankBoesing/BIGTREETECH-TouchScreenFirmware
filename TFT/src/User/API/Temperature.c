@@ -1,8 +1,11 @@
 #include "Temperature.h"
 #include "includes.h"
 
-#define HEATING_TIMEOUT    300000  // 5 minutes (1 sec is 1000)
-#define AUTOREPORT_TIMEOUT 3000    // 3 second grace period
+#define HEATING_TIMEOUT             300000  // 5 minutes (1 sec is 1000)
+#define AUTOREPORT_TIMEOUT           3000    // 3 second grace period
+#define HOST_STARTUP_DELAY_MS        3000U   // wait for the mainboard to finish its boot sequence
+#define HOST_STARTUP_RETRY_INTERVAL  2000U   // retry the unnumbered M105 probe until the mainboard responds
+#define HOST_STARTUP_QUEUE_RETRY     250U    // retry sooner if the command queue is temporarily full
 
 const char * const heaterID[MAX_HEATER_COUNT]      = HEAT_SIGN_ID;
 const char * const heatDisplayID[MAX_HEATER_COUNT] = HEAT_DISPLAY_ID;
@@ -21,6 +24,8 @@ static uint8_t heat_enqueueing_waiting = 0;  // "true" if command requested from
 static uint8_t heat_update_seconds = TEMPERATURE_QUERY_SLOW_SECONDS;
 static uint32_t heat_next_update_time = 0;
 static bool heat_sending_waiting = false;
+static bool hostStartupHandshake = false;
+static uint32_t hostStartupNextProbeTime = 0;
 
 // verify that the heater index is valid, and fix the index of multiple in and 1 out tool nozzles
 static uint8_t heaterIndexFix(uint8_t index)
@@ -248,30 +253,70 @@ void heatSetNextUpdateTime(void)
     heat_next_update_time += AUTOREPORT_TIMEOUT;
 }
 
+void heatStartStartupHandshake(void)
+{
+  hostStartupHandshake = true;
+  hostStartupNextProbeTime = OS_GetTimeMs() + HOST_STARTUP_DELAY_MS;
+  heat_next_update_time = 0;
+  heat_sending_waiting = false;
+}
+
+void heatCompleteStartupHandshake(void)
+{
+  hostStartupHandshake = false;
+  heat_sending_waiting = false;
+}
+
 void heatClearSendingWaiting(void)
 {
   heat_sending_waiting = false;
+
+  // Start the retry interval when the probe actually leaves the TFT queue,
+  // not when it is merely enqueued. This avoids duplicate M105 commands.
+  if (hostStartupHandshake)
+    hostStartupNextProbeTime = OS_GetTimeMs() + HOST_STARTUP_RETRY_INTERVAL;
 }
 
 void loopCheckHeater(void)
 {
-  do
-  { // periodically send M105 to query the temperatures, if motherboard does not supports M155 (AUTO_REPORT_TEMPERATURES)
-    // feature to automatically report the temperatures or (if M155 is supported) check temperature auto-report timeout
-    // and resend M155 command in case of timeout expired
+  const uint32_t now = OS_GetTimeMs();
 
-    if (OS_GetTimeMs() < heat_next_update_time)  // if next check time not yet elapsed, do nothing
-      break;
+  if (!infoHost.connected)
+  {
+    // The first probe is deliberately delayed. Until a valid temperature
+    // response is received, send only unnumbered M105 probes.
+    if (!hostStartupHandshake)
+      heatStartStartupHandshake();
 
-    heatSetNextUpdateTime();  // extend next check time
+    if ((int32_t)(now - hostStartupNextProbeTime) >= 0 &&
+        !heat_sending_waiting && !requestCommandInfoIsRunning())
+    {
+      if (storeCmd("M105\n"))
+      {
+        heat_sending_waiting = true;
+      }
+      else
+      {
+        // The command queue is temporarily full. Retry queue insertion soon
+        // without blocking the main loop or marking a nonexistent command pending.
+        hostStartupNextProbeTime = now + HOST_STARTUP_QUEUE_RETRY;
+      }
+    }
+  }
+  else
+  {
+    // Regular temperature polling starts only after the startup handshake.
+    if ((int32_t)(now - heat_next_update_time) >= 0)
+    {
+      heatSetNextUpdateTime();
 
-    // if M105/M155 previously enqueued and not yet sent or pending command
-    // (to avoid collision in gcode response processing), do nothing
-    if (heat_sending_waiting || requestCommandInfoIsRunning())
-      break;
-
-    heat_sending_waiting = !infoMachineSettings.autoReportTemp ? storeCmd("M105\n") : storeCmd("M155 S%u\n", heat_update_seconds);
-  } while (0);
+      // if M105/M155 previously enqueued and not yet sent or pending command
+      // (to avoid collision in gcode response processing), do nothing
+      if (!heat_sending_waiting && !requestCommandInfoIsRunning())
+        heat_sending_waiting = infoMachineSettings.autoReportTemp ?
+                               storeCmd("M155 S%u\n", heat_update_seconds) : storeCmd("M105\n");
+    }
+  }
 
   for (uint8_t i = 0; i < MAX_HEATER_COUNT; i++)
   {
